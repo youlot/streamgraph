@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<meta charset="utf-8" />
+<style>
+    p {
+        font: 12px helvetica;
+    }
+    .zoom {
+        cursor: move;
+        fill: none;
+        pointer-events: all;
+    }
+</style>
+<title>Streamgraph</title>
+<!--<svg width="960" height="500"></svg>-->
+<body></body>
+<script src="https://d3js.org/d3.v4.min.js"></script>
+<script>
+
+    var n = 10, // number of layers
+        m = 200, // number of samples per layer
+        k = 10; // number of bumps per layer
+
+    // stack the datas
+    var stack = d3.stack().keys(d3.range(n)).offset(d3.stackOffsetWiggle),
+        layers0 = stack(d3.transpose(d3.range(n).map(function () { return bumps(m, k); }))),
+        layers1 = stack(d3.transpose(d3.range(n).map(function () { return bumps(m, k); }))),
+        layers = layers0.concat(layers1);
+
+    var svgWidth = 800;
+    var svgHeight = 300;
+    var margin = {top: 30, right: 40, bottom: 50, left: 60};
+    var width = svgWidth - margin.left - margin.right;
+    var height = svgHeight - margin.top - margin.bottom;
+
+    var svgViewport = d3.select("body")
+        .append('svg')
+        .attr('width', svgWidth)
+        .attr('height', svgHeight)
+        .style("background", "#f2d4ba");
+
+    // cliped mask
+    //innerSpace.append("defs").append("clipPath")
+    //    .attr("id", "clip")
+    //    .append("rect")
+    //    .attr("width", width)
+    //    .attr("height", height);
+
+    var mask = svgViewport.append("defs")
+        .append("clipPath")
+        .attr("id", "mask")
+        //.style("pointer-events", "none")
+        .append("rect")
+        .attr("width", width)
+        .attr("height", height);
+
+    // create scale objects
+    var xAxisScale = d3.scaleLinear()
+        .domain([0, m - 1])
+        .range([0, width]);
+
+    var yAxisScale = d3.scaleLinear()
+        .domain([d3.min(layers, stackMin), d3.max(layers, stackMax)])
+        .range([height, 0]);
+
+    // create axis objects
+    var xAxis = d3.axisBottom(xAxisScale);
+    var yAxis = d3.axisLeft(yAxisScale);
+
+    // color set
+    var z = d3.interpolateRainbow;
+    //var z = d3.interpolateCool; 
+
+    // Zoom Function
+    var zoom = d3.zoom()
+        .scaleExtent([1, 32])
+        .on("zoom", zoomFunction);
+
+    // Inner Drawing Space
+    var innerSpace = svgViewport.append("g")
+        .attr("class", "inner_space")
+        .attr("transform", "translate(" + margin.left + "," + margin.top + ")");
+        //.attr("clip-path", "url(#mask)") // mask also the axis
+        //.call(zoom);
+
+    // append x axis
+    var gx = innerSpace.append("g")
+        .attr("class", "x axis")
+        .attr("transform", "translate(0," + height + ")")
+        .call(xAxis);
+
+    // append y axis to the right of the chart
+    var gyr = innerSpace.append("g")
+        .attr("class", "y axis")
+        .attr("transform", "translate(" + width + ", 0)")
+        .call(yAxis);
+
+    // append y axis to the left of the chart
+    var gyl = innerSpace.append("g")
+        .attr("class", "y axis")
+        .call(d3.axisLeft().scale(yAxisScale));
+    
+    // append zone area (rect for zoom)
+    //var view = innerSpace.append("rect")
+    //    .attr("class", "zoom")
+    //    .attr("width", width)
+    //    .attr("height", height)
+    //    .call(zoom);
+
+    // graphZone where the area will be append
+    var graphZone = innerSpace.append("g")
+        .attr("width", width)
+        .attr("height", height)
+        .attr("clip-path", "url(#mask)")
+        .call(zoom);
+
+    // set a background with rect to catch the zoom 
+    graphZone.append("rect")
+        .attr("width", "100%")
+        .attr("height", "100%")
+        .attr("opacity", 0);
+
+    // the areaStreams
+    var area = d3.area()
+        .x(function (d, i) { return xAxisScale(i); })
+        .y0(function (d) { return yAxisScale(d[0]); })
+        .y1(function (d) { return yAxisScale(d[1]); });
+
+    var streams = graphZone.selectAll("path")
+        .data(layers0)
+        .enter().append("path") // append all paths (area streams)
+        .attr("d", area)
+        .attr("opacity", 1)
+        .attr("fill", function () { return z(Math.random()); });// set color randomly
+
+    var tooltip = d3.select("body")
+        .append("div")
+        .attr("class", "remove")
+        .style("position", "absolute")
+        .style("z-index", "2")
+        .style("visibility", "hidden")
+        .style("top", "30px")
+        .style("left", "55px");
+
+    let hoveredKey;
+    let hoveredValue;
+
+    // can't split in different blocks because .on("") events 
+    // definition erase the previous ones
+    svgViewport.selectAll("path")
+        .on("mousemove", function (d, i) {
+            // defined hovered layer and hovered value
+            mousex = d3.mouse(this);
+            mousex = mousex[0];
+            var invertedx = xAxisScale.invert(mousex);
+            //console.log("invertedx : " + invertedx);
+            //console.log("d");
+            //console.log(d);
+            var selected = (d.values);
+            //console.log("selected");
+            //console.log(selected);
+            hoveredKey = "test";
+            hoveredValue = "test2";
+            //console.log(hoveredKey);
+
+            d3.select(this)
+                // set hover
+                .classed("hover", true)
+                .attr("stroke", "#000")
+                .attr("stroke-width", "0.5px"),
+                // display tooltip
+                //console.log("set tooltip");
+                tooltip.html("<p>" + hoveredKey + "<br>" + hoveredValue + "</p>").style("visibility", "visible");
+        })
+        .on("mouseover", function (d, i) {
+            svgViewport.selectAll("path").transition()
+                .duration(25)
+                .attr("opacity", function (d, j) {
+                    return j != i ? 0.6 : 1;
+                })
+        })
+        .on("mouseout", function (d, i) {
+            svgViewport.selectAll("path")
+                .transition()
+                .duration(25)
+                .attr("opacity", "1");
+            d3.select(this)
+                // unset hover
+                .classed("hover", false)
+                .attr("stroke-width", "0px"),
+                // hidde tooltip
+                tooltip.html("<p>" + hoveredKey + "<br>" + hoveredValue + "</p>").style("visibility", "hidden");
+        });
+
+    function zoomFunction() {
+        // create new scale ojects based on event
+        var new_xScale = d3.event.transform.rescaleX(xAxisScale)
+        var new_yScale = d3.event.transform.rescaleY(yAxisScale)
+        console.log(d3.event.transform)
+
+        // update axes
+        gx.call(xAxis.scale(new_xScale));
+        gyr.call(yAxis.scale(new_yScale));
+        gyl.call(yAxis.scale(new_yScale));
+
+        // update streams
+        streams.attr("transform", d3.event.transform);
+        
+    };
+
+    function stackMax(layer) {
+        return d3.max(layer, function (d) { return d[1]; });
+    }
+
+    function stackMin(layer) {
+        return d3.min(layer, function (d) { return d[0]; });
+    }
+
+    // Inspired by Lee Byron’s test data generator.
+    function bumps(n, m) {
+        var a = [], i;
+        for (i = 0; i < n; ++i) a[i] = 0;
+        for (i = 0; i < m; ++i) bump(a, n);
+        return a;
+    }
+
+    function bump(a, n) {
+        var x = 1 / (0.1 + Math.random()),
+            y = 2 * Math.random() - 0.5,
+            z = 10 / (0.1 + Math.random());
+        for (var i = 0; i < n; i++) {
+            var w = (i / n - y) * z;
+            a[i] += x * Math.exp(-w * w);
+        }
+    }
+
+</script>
